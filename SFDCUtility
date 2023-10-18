@@ -1,0 +1,214 @@
+public with sharing class SFDCUtility {
+	//CONSTANTS
+	public static final string DATEREGEX = '[0-9]{4}-[0-9]{0,2}-[0-9]{0,2}'; //YYYY-MM-DD
+	public static final string EMAILREGEX = '^[a-zA-Z0-9._|\\\\%#~`=?&/$^*!}{+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,4}$';
+
+	//Variables
+	public static integer qryLimit = Limits.getLimitQueries() - Limits.getQueries();
+
+	//Returns fields not nillable and not set on creation
+	public static List<string> getRequiredFieldsBySobject(string sObjectTypeInput) {
+		List<string> requiredFieldList = new List<String>();
+
+		SObjectType sObjectName = ((SObject) Type.forName(sObjectTypeInput).newInstance()).getSObjectType();
+
+		Schema.DescribeSObjectResult r = sObjectName.getDescribe();
+		Map<String, Schema.SObjectField> m = r.fields.getMap();
+
+		for (String fieldName : m.keySet()) {
+			Schema.SObjectField field = m.get(fieldName);
+			Schema.DescribeFieldResult f = field.getDescribe();
+			if (!f?.isNillable() && !f?.isDefaultedOnCreate()) {
+				requiredFieldList.add(f?.label);
+			}
+		}
+		return requiredFieldList;
+	}
+
+	//RETURNS TEST CONTACT WITH SPECIFIED DATA
+	public static Contact createContact(String firstName, String lastName, string rtDevName) {
+		return new Contact(
+			recordTypeId = Schema.SObjectType.Contact.getRecordTypeInfosByDeveloperName().get(rtDevName).getRecordTypeId(),
+			FirstName = firstName,
+			LastName = lastName
+    );
+	}
+
+	//RETURNS RANDOM STRING OF SPECIFIED LENGTH-USED IN TEST CLASSES
+	public static String generateRandomStringByLength(Integer stringLength) {
+		final String CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyz';
+		String randomString = '';
+		while (randomString.length() < stringLength) {
+			Integer index = Math.mod(Math.abs(Crypto.getRandomInteger()), CHARS.length());
+			randomString += CHARS.substring(index, index + 1);
+		}
+		return randomString;
+	}
+
+	//RETURNS A NEW USER FOR USE IN TEST CLASS
+	public static User createUser(String profileName) {
+		if (Schema.SObjectType.Profile.isQueryable() && Schema.SObjectType.User.isAccessible()) {
+			Profile p = [SELECT Id FROM Profile WHERE Name = :profileName WITH USER_MODE];
+			return new User(
+				Alias = 'johnTester',
+				Email = 'johnTester@test.org',
+				EmailEncodingKey = 'UTF-8',
+				FirstName = 'John',
+				LastName = 'Tester',
+				LanguageLocaleKey = 'en_US',
+				LocaleSidKey = 'en_US',
+				ProfileId = p.Id,
+				TimeZoneSidKey = 'America/New_York',
+				FederationIdentifier = 'johnTester@test.org' + generateRandomStringByLength(3),
+				UserName = 'johnTester@test.org' + generateRandomStringByLength(3)
+			);
+		}
+		return null;
+	}
+
+	//ADDS PERMISSION SETS TO USER WITH PARAMS INDICATING IF OCR, SUPERVISOR-USED FOR UNIT TESTS
+	public static void addPermSets(User u, boolean isOCR, boolean isSuper) {
+		if (Schema.SObjectType.PermissionSetAssignment.isCreateable() && Schema.SObjectType.PermissionSet.IsQueryable()) {
+			List<PermissionSetAssignment> permSetAssignmentList = new List<PermissionSetAssignment>();
+
+			for (PermissionSet ps : [SELECT id, name FROM PermissionSet WHERE name IN :PERMSETLIST WITH USER_MODE]) { 
+				permSetAssignmentList.add(new PermissionSetAssignment(PermissionSetId = ps.id, AssigneeId = u.id));
+			}
+			Database.insert(permSetAssignmentList, AccessLevel.USER_MODE);
+		}
+	}
+
+	//RETURNS TEST USER-USED WHEN RUNNING UNIT TESTS
+	public static User getTestUser() {
+		if (Schema.sObjectType.User.isAccessible()) {
+			return [SELECT id, alias, email FROM User WHERE alias = 'johnTester' AND email = 'johnTester@test.org' WITH USER_MODE LIMIT 1];
+		}
+		return null;
+	}
+
+	//RETURNS LIST OF PICKLIST FIELDS BY SOBJECTTYPE
+	public static List<Schema.PicklistEntry> getPicklistEntryList(String objectName, string fieldName) {
+		if (String.isBlank(objectName) || String.isBlank(fieldName)) {
+			return new List<Schema.PicklistEntry>();
+		}
+
+		Schema.SObjectType objectType = Schema.getGlobalDescribe().get(objectName);
+
+		if (String.IsBlank(String.ValueOf(objectType))) {
+			return new List<Schema.PicklistEntry>();
+		}
+
+		if (!objectType.getDescribe().isAccessible()) {
+			return new List<Schema.PicklistEntry>();
+		}
+
+		Schema.DescribeSObjectResult res = objectType.getDescribe();
+
+		Map<String, Schema.SObjectField> fields = res.fields.getMap();
+
+		Schema.DescribeFieldResult fieldResult = fields.get(fieldName).getDescribe();
+
+		return fieldResult.getPicklistValues();
+	}
+
+	//RETURNS MAP OF STRING, LIST<STRING> OF CONTROLLING FIELD AND DEPENDENCIES
+	@AuraEnabled
+	public static Map<String, List<String>> getFieldDependencyMap(String objectName, String controllingField, String dependentField) {
+		Map<String, List<String>> controllingInfo = new Map<String, List<String>>();
+
+		try {
+			if (!String.isBlank(objectName) && !String.isBlank(controllingField) && !String.isBlank(dependentField)) {
+				Schema.SObjectType objectType = ((SObject) Type.forName(objectName)?.newInstance())?.getSObjectType();
+
+				if (objectType != null) {
+					if (objectType?.getDescribe().isAccessible()) {
+						SObjectField cntrlField = objectType.getDescribe()?.fields.getMap()?.get(controllingField);
+
+						if (cntrlField.getDescribe().isAccessible()) {
+							SObjectField dpntField = objectType.getDescribe()?.fields.getMap()?.get(dependentField);
+							if (dpntField?.getDescribe().isAccessible()) {
+								Schema.DescribeSObjectResult describeResult = objectType.getDescribe();
+								Schema.DescribeFieldResult controllingFieldInfo = describeResult.fields.getMap().get(controllingField).getDescribe();
+								Schema.DescribeFieldResult dependentFieldInfo = describeResult.fields.getMap().get(dependentField).getDescribe();
+
+								if (controllingFieldInfo != null && dependentFieldInfo != null) {
+									List<Schema.PicklistEntry> controllingValues = controllingFieldInfo.getPicklistValues();
+									List<Schema.PicklistEntry> dependentValues = dependentFieldInfo.getPicklistValues();
+
+									if (!controllingValues?.isEmpty()) {
+										for (Schema.PicklistEntry currControllingValue : controllingValues) {
+											controllingInfo.put(currControllingValue.getLabel(), new List<String>());
+										}
+									}
+
+									if (!dependentValues?.isEmpty()) {
+										for (Schema.PicklistEntry currDependentValue : dependentValues) {
+											String jsonString = JSON.serialize(currDependentValue);
+											Map<String, String> stringMap = (Map<String, String>) JSON.deserialize(jsonString, Map<String, String>.class);
+
+											String validFor = stringMap.get('validFor');
+
+											String hexString = EncodingUtil.convertToHex(EncodingUtil.base64Decode(validFor)).toUpperCase();
+											Integer baseCount = 0;
+
+											for (Integer curr : hexString.getChars()) {
+												Integer val = 0;
+
+												if (curr >= 65) {
+													val = curr - 65 + 10;
+												} else {
+													val = curr - 48;
+												}
+
+												if ((val & 8) == 8) {
+													controllingInfo.get(controllingValues[baseCount + 0].getLabel()).add(currDependentValue.getLabel());
+												}
+												if ((val & 4) == 4) {
+													controllingInfo.get(controllingValues[baseCount + 1].getLabel()).add(currDependentValue.getLabel());
+												}
+												if ((val & 2) == 2) {
+													controllingInfo.get(controllingValues[baseCount + 2].getLabel()).add(currDependentValue.getLabel());
+												}
+												if ((val & 1) == 1) {
+													controllingInfo.get(controllingValues[baseCount + 3].getLabel()).add(currDependentValue.getLabel());
+												}
+												baseCount += 4;
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		} catch (AuraHandledException e) {
+			throw new AuraHandledException(e.getMessage());
+		}
+		return controllingInfo;
+	}
+
+	/* RETURNS MAP OF USER/GROUP NAME AND ID */
+	public static Map<String, String> getUserGroupMap(List<String> userGroupList) {
+		Map<String, String> userGroupMap = new Map<String, String>();
+
+		if (userGroupList != null) {
+			if (!userGroupList.isEmpty() && Schema.SObjectType.Group.isQueryable() && Schema.SObjectType.User.isQueryable()) {
+				for (Group g : [
+					SELECT id, name, developerName
+					FROM Group
+					WHERE name IN :userGroupList OR developerName IN :userGroupList
+					WITH USER_MODE
+					LIMIT :userGroupList.size()
+				]) {
+					userGroupMap.put(g.name, g.id);
+					userGroupMap.put(g.developerName, g.id);
+				}
+				for (User u : [SELECT id, name FROM User WHERE name IN :userGroupList WITH USER_MODE LIMIT :userGroupList.size()]) {
+					userGroupMap.put(u.name, u.id);
+				}
+			}
+		}
+		return userGroupMap;
+	}
+}
