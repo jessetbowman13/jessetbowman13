@@ -210,5 +210,78 @@ public with sharing class SFDCUtility {
 			}
 		}
 		return userGroupMap;
+	}public static boolean isValidSobject(String sobj) {
+		boolean isValid = false;
+
+		if (!String.isBlank(sobj) && Schema.getGlobalDescribe()?.get(sobj) != null) {
+			isValid = true;
+		}
+
+		return isValid;
+	}
+
+	/*RETURNS BOOLEAN INDICATING IF CURRENT USER HAS ACCESS TO THE OBJECT PASSED AS STRING*/
+	public static boolean isSobjectAccessible(String sobj) {
+		boolean isAccessible = false;
+
+		if (isValidSobject(sobj) && Schema.getGlobalDescribe()?.get(sobj)?.getDescribe().isAccessible()) {
+			isAccessible = true;
+		}
+
+		return isAccessible;
+	}
+
+	/*RETURNS BOOLEAN INDICATING IF CURRENT USER HAS QUERY PERMISSION TO THE OBJECT PASSED AS STRING*/
+	public static boolean isSobjectQueryable(String sobj) {
+		boolean isQueryable = false;
+
+		if (isValidSobject(sobj) && Schema.getGlobalDescribe()?.get(sobj)?.getDescribe().isQueryable()) {
+			isQueryable = true;
+		}
+
+		return isQueryable;
+	}
+
+	/*RETURNS BOOLEAN INDICATING IF CURRENT USER HAS CREATE PERMISSION FOR OBJECT PASSED AS STRING*/
+	public static boolean isSobjectCreateable(String sobj) {
+		boolean isCreateable = false;
+
+		if (isValidSobject(sobj) && Schema.getGlobalDescribe().get(sobj)?.getDescribe().isCreateable()) {
+			isCreateable = true;
+		}
+
+		return isCreateable;
+	}
+
+	/*RETURNS BOOLEAN INDICATING IF CURRENT USER HAS UPDATE PERMISSION FOR OBJECT PASSED AS STRING*/
+	public static boolean isSobjectUpdateable(String sobj) {
+		boolean isUpdateable = false;
+
+		if (isValidSobject(sobj) && Schema.getGlobalDescribe().get(sobj)?.getDescribe().isUpdateable()) {
+			isUpdateable = true;
+		}
+		return isUpdateable;
+	}
+
+	/*RETURNS BOOLEAN INDICATING IF CURRENT USER HAS UPSERT PERMISSION FOR OBJECT PASSED AS STRING*/
+	public static boolean isSobjectUpserteable(String sobj) {
+		boolean isUpserteable = false;
+
+		if (isValidSobject(sobj) && isSobjectCreateable(sobj) && isSobjectUpdateable(sobj)) {
+			isUpserteable = true;
+		}
+
+		return isUpserteable;
+	}
+
+	/*RETURNS BOOLEAN INDICATING IF CURRENT USER HAS DELETE PERMISSION FOR OBJECT PASSED AS STRING*/
+	public static boolean isSobjectDeleteable(String sobj) {
+		boolean isDeletable = false;
+
+		if (isValidSobject(sobj) && Schema.getGlobalDescribe().get(sobj)?.getDescribe().isDeletable()) {
+			isDeletable = true;
+		}
+
+		return isDeletable;
 	}
 }
